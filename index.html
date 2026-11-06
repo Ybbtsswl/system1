@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rice Inventory — Auto Recalc Total</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: #f0f4f8; padding: 15px; }
+        h1 { text-align: center; color: #2d3748; margin-bottom: 20px; font-size: 1.5rem; }
+        h2 { font-size: 1.1rem; color: #2b6cb0; margin-bottom: 10px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .inventory-section { background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background: #ebf8ff; color: #2c5282; font-weight: 600; }
+        .summary-bar { display: flex; gap: 12px; background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px; flex-wrap: wrap; }
+        .summary-item { font-size: 0.95rem; font-weight: 600; }
+        .income { color: #2f855a; }
+        .cost { color: #e53e3e; }
+        .profit { color: #2b6cb0; }
+        .main-grid { display: grid; grid-template-columns: 280px 1fr; gap: 15px; }
+        @media (max-width: 768px) { .main-grid { grid-template-columns: 1fr; } }
+        .buttons-panel { background: white; border-radius: 8px; padding: 15px; }
+        button { width: 100%; padding: 12px; margin: 6px 0; border: none; border-radius: 6px; font-size: 0.95rem; cursor: pointer; font-weight: 500; }
+        button:active { transform: scale(0.98); }
+        .btn-primary { background: #3182ce; color: white; }
+        .btn-success { background: #38a169; color: white; }
+        .btn-warning { background: #ed8936; color: white; }
+        .btn-danger { background: #e53e3e; color: white; }
+        .btn-info { background: #805ad5; color: white; }
+        .btn-sm { padding: 8px; font-size: 0.85rem; width: auto; }
+        hr { border: none; border-top: 1px solid #e2e8f0; margin: 12px 0; }
+        .sale-panel { background: white; border-radius: 8px; padding: 15px; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; overflow-y: auto; padding: 20px 0; }
+        .modal.active { display: flex; }
+        .modal-content { background: white; padding: 20px; border-radius: 10px; width: 95%; max-width: 700px; }
+        .modal-content h3 { margin-bottom: 15px; }
+        label { display: block; margin: 10px 0 4px; font-weight: 500; }
+        input, select { padding: 8px; border: 1px solid #cbd5e0; border-radius: 5px; font-size: 0.95rem; }
+        input.default-val { background: #f0fff4; }
+        .stock-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px; background: #f7fafc; border-radius: 6px; margin-bottom: 8px; }
+        .stock-row select, .stock-row input { flex: 1; min-width: 80px; }
+        .row-calc { font-size: 0.8rem; color: #718096; margin-left: auto; white-space: nowrap; }
+        .subtotal-bar { background: #f0fff4; padding: 12px; border-radius: 6px; margin: 12px 0; font-weight: 600; }
+        .empty-hint { color: #718096; font-style: italic; padding: 15px; text-align: center; }
+        .info-note { color: #2b6cb0; font-size: 0.85rem; margin: 8px 0; line-height: 1.4; }
+        .modal-buttons { display: flex; gap: 10px; margin-top: 15px; }
+        .modal-buttons button { flex: 1; }
+        .btn-row { display: flex; gap: 8px; margin: 8px 0; }
+        .edit-btn { background: #805ad5; color: white; padding: 4px 10px; font-size: 0.75rem; border-radius: 4px; border: none; cursor: pointer; margin-left: 8px; }
+        .txn-item { padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+        .txn-item:last-child { border-bottom: none; }
+        .txn-buy { color: #2f855a; font-weight: 600; }
+        .txn-sell { color: #e53e3e; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <h1>📦 Rice Inventory Management System</h1>
+    <div class="container">
+        <div class="inventory-section">
+            <h2>📋 Inventory — Stock, Cost & Price</h2>
+            <table id="inventoryTable">
+                <thead>
+                    <tr>
+                        <th>Rice Type</th>
+                        <th>Stock (kg)</th>
+                        <th>Avg Cost/kg (RM)</th>
+                        <th>Default Sell/kg (RM)</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="inventoryBody"></tbody>
+            </table>
+        </div>
+
+        <div class="summary-bar">
+            <div class="summary-item income">Total Income: RM <span id="totalIncome">0.00</span></div>
+            <div class="summary-item cost">Total Cost: RM <span id="totalCost">0.00</span></div>
+            <div class="summary-item profit">Total Profit: RM <span id="totalProfit">0.00</span></div>
+        </div>
+
+        <div class="main-grid">
+            <div class="buttons-panel">
+                <h2>Operations</h2>
+                <button class="btn-primary" onclick="openModal('addRice')">➕ Add New Rice</button>
+                <hr>
+                <button class="btn-success" onclick="openModal('multiStockIn')">📥 MULTI BUY</button>
+                <button class="btn-warning" onclick="openModal('multiStockOut')">📤 MULTI SELL</button>
+                <hr>
+                <button class="btn-info" onclick="showLog()">📋 Transaction Log</button>
+                <button class="btn-primary" onclick="refreshAll()">🔄 Refresh</button>
+                <hr>
+                <div class="btn-row">
+                    <button class="btn-success btn-sm" onclick="exportBackup()">💾 Export</button>
+                    <button class="btn-primary btn-sm" onclick="openModal('importModal')">📂 Import</button>
+                </div>
+                <button class="btn-danger" onclick="resetAllData()">⚠️ Reset All</button>
+            </div>
+
+            <div class="sale-panel">
+                <h2>📤 Recent Transactions</h2>
+                <div id="saleList" style="max-height:400px;overflow:auto;">
+                    <div class="empty-hint">No transactions yet.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Rice -->
+    <div class="modal" id="modal_addRice">
+        <div class="modal-content">
+            <h3>Add New Rice Type</h3>
+            <label>Rice Name *</label>
+            <input type="text" id="ar_name">
+            <label>Initial Stock (kg) *</label>
+            <input type="number" step="0.01" id="ar_stock">
+            <label>Cost per kg (RM) *</label>
+            <input type="number" step="0.01" id="ar_cost">
+            <label>Default Selling Price per kg (RM) *</label>
+            <input type="number" step="0.01" id="ar_price">
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="addRice()">Add Rice</button>
+                <button onclick="closeModal('addRice')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- EDIT RICE MODAL -->
+    <div class="modal" id="modal_editRice">
+        <div class="modal-content">
+            <h3>✏️ Edit Rice Info</h3>
+            <label>Rice Name</label>
+            <input type="text" id="er_name" disabled>
+            <label>Stock (kg)</label>
+            <input type="number" step="0.01" id="er_stock">
+            <label>Avg Cost per kg (RM)</label>
+            <input type="number" step="0.01" id="er_cost">
+            <label>Default Selling Price per kg (RM)</label>
+            <input type="number" step="0.01" id="er_price">
+            <div class="modal-buttons">
+                <button class="btn-primary" onclick="saveRiceEdit()">Save Changes</button>
+                <button onclick="closeModal('editRice')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MULTI STOCK IN -->
+    <div class="modal" id="modal_multiStockIn">
+        <div class="modal-content">
+            <h3>📥 Multi Buy</h3>
+            <p class="info-note">Select rice type, quantity, and cost per kg for each item.</p>
+            <div id="stockInRows"></div>
+            <button class="btn-primary btn-sm" onclick="addStockInRow()" style="margin:8px 0;">➕ Add Another Rice Type</button>
+            <div class="subtotal-bar" id="stockInSubtotal">Total Cost: RM 0.00</div>
+            <div class="modal-buttons">
+                <button class="btn-success" onclick="confirmMultiStockIn()">✅ Confirm All Buy</button>
+                <button onclick="closeModal('multiStockIn')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MULTI STOCK OUT — Quantity Change Recalculates Total -->
+    <div class="modal" id="modal_multiStockOut">
+        <div class="modal-content">
+            <h3>📤 Multi Sell — Auto Recalculate</h3>
+            <p class="info-note">Select rice → enter quantity → total price auto-calculates. Edit total to set custom price/kg; changing quantity preserves your rate.</p>
+            <div id="stockOutRows"></div>
+            <button class="btn-primary btn-sm" onclick="addStockOutRow()" style="margin:8px 0;">➕ Add Another Rice Type</button>
+            <div class="subtotal-bar" id="stockOutSubtotal">Total Selling Value: RM 0.00</div>
+            <div class="modal-buttons">
+                <button class="btn-warning" onclick="confirmMultiStockOut()">✅ Confirm All Sell</button>
+                <button onclick="closeModal('multiStockOut')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div class="modal" id="modal_importModal">
+        <div class="modal-content">
+            <h3>📂 Import Backup</h3>
+            <textarea id="importData" placeholder="Paste backup code here..." style="width:100%;min-height:120px;"></textarea>
+            <div class="modal-buttons">
+                <button class="btn-success" onclick="importBackup()">Restore</button>
+                <button onclick="closeModal('importModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Modal -->
+    <div class="modal" id="modal_log">
+        <div class="modal-content" style="max-width:600px;">
+            <h3>📋 Transaction Log</h3>
+            <textarea id="logContent" readonly style="width:100%;height:300px;"></textarea>
+            <div class="modal-buttons">
+                <button onclick="closeModal('log')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let riceTypes = {};
+        let transactionLog = [];
+        let salesRecords = [];
+        const STORAGE_KEY = 'rice_inventory_data';
+
+        function getTimestamp() {
+            return new Date().toISOString().replace('T', ' ').substring(0, 19);
+        }
+        function getDateOnly() {
+            const d = new Date();
+            const dd = String(d.getDate()).padStart(2, '0');
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const yyyy = d.getFullYear();
+            return `${dd}/${mm}/${yyyy}`;
+        }
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({riceTypes, transactionLog, salesRecords}));
+        }
+        function loadData() {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+                try {
+                    const d = JSON.parse(raw);
+                    riceTypes = d.riceTypes || {};
+                    transactionLog = d.transactionLog || [];
+                    salesRecords = d.salesRecords || [];
+                } catch { resetAllData(); }
+            }
+        }
+        
+        function logAction(a, d) {
+            transactionLog.push({t:getTimestamp(), date:getDateOnly(), a, d});
+            saveData();
+        }
+        function getNum(v) { const n=parseFloat(v); return isNaN(n)?null:n; }
+        function riceOptions() {
+            let h = '<option value="">-- Select --</option>';
+            for(const n in riceTypes) h += `<option value="${n}">${n}</option>`;
+            return h;
+        }
+
+        // ===== EDIT RICE =====
+        function openEditRice(name) {
+            const d = riceTypes[name];
+            if (!d) return;
+            document.getElementById('er_name').value = name;
+            document.getElementById('er_stock').value = d.stock.toFixed(2);
+            document.getElementById('er_cost').value = d.cost_per_kg.toFixed(2);
+            document.getElementById('er_price').value = d.price_per_kg.toFixed(2);
+            openModal('editRice');
+        }
+        function saveRiceEdit() {
+            const name = document.getElementById('er_name').value;
+            const stock = getNum(document.getElementById('er_stock').value);
+            const cost = getNum(document.getElementById('er_cost').value);
+            const price = getNum(document.getElementById('er_price').value);
+            if (!name || !riceTypes[name]) return alert('Rice not found');
+            if (stock === null || stock < 0) return alert('Invalid stock');
+            if (cost === null || cost < 0) return alert('Invalid cost');
+            if (price === null || price <= 0) return alert('Invalid price');
+            riceTypes[name] = {stock, cost_per_kg: cost, price_per_kg: price};
+            logAction('EDIT', `${name} → stock:${stock}kg cost:RM${cost} sell:RM${price}/kg`);
+            saveData();
+            alert('✅ Rice info updated');
+            closeModal('editRice');
+            refreshAll();
+        }
+
+        // ===== MULTI STOCK IN =====
+        let inRowCount = 0;
+        function addStockInRow() {
+            inRowCount++;
+            const c = `
+                <div class="stock-row" id="in_row_${inRowCount}">
+                    <select class="riceSelIn" data-row="${inRowCount}">${riceOptions()}</select>
+                    <input type="number" step="0.01" class="qtyIn" data-row="${inRowCount}" placeholder="Qty kg" oninput="updateInRow(${inRowCount})">
+                    <input type="number" step="0.01" class="costKgIn" data-row="${inRowCount}" placeholder="Cost/kg RM" oninput="updateInRow(${inRowCount})">
+                    <span class="row-calc" id="in_calc_${inRowCount}">—</span>
+                    <button class="btn-danger btn-sm" onclick="removeInRow(${inRowCount})" style="width:auto;">✕</button>
+                </div>`;
+            document.getElementById('stockInRows').insertAdjacentHTML('beforeend', c);
+        }
+        function removeInRow(id) {
+            document.getElementById(`in_row_${id}`).remove();
+            updateInSubtotal();
+        }
+        function updateInRow(id) {
+            const qty = getNum(document.querySelector(`[data-row="${id}"].qtyIn`).value) || 0;
+            const costKg = getNum(document.querySelector(`[data-row="${id}"].costKgIn`).value) || 0;
+            document.getElementById(`in_calc_${id}`).textContent = `Total: RM ${(qty*costKg).toFixed(2)}`;
+            updateInSubtotal();
+        }
+        function updateInSubtotal() {
+            let total = 0;
+            document.querySelectorAll('#stockInRows .row-calc').forEach(el => {
+                const m = el.textContent.match(/RM ([\d.]+)/);
+                if(m) total += parseFloat(m[1]);
+            });
+            document.getElementById('stockInSubtotal').innerHTML = `Total Cost: RM ${total.toFixed(2)}`;
+        }
+
+        // ===== MULTI STOCK OUT — WITH QUANTITY CHANGE RECALC =====
+        let outRowCount = 0;
+        function addStockOutRow() {
+            outRowCount++;
+            const c = `
+                <div class="stock-row" id="out_row_${outRowCount}" data-custom-rate="0">
+                    <select class="riceSelOut" data-row="${outRowCount}" onchange="onOutRiceChange(${outRowCount})">${riceOptions()}</select>
+                    <input type="number" step="0.01" class="qtyOut" data-row="${outRowCount}" placeholder="Qty kg" oninput="onQtyChange(${outRowCount})">
+                    <input type="number" step="0.01" class="totalPriceOut default-val" data-row="${outRowCount}" placeholder="Total Price RM" oninput="onTotalPriceEdit(${outRowCount})">
+                    <span class="row-calc" id="out_calc_${outRowCount}">—</span>
+                    <label style="margin:0;white-space:nowrap;font-size:0.8rem;">
+                        <input type="checkbox" class="saleInc" data-row="${outRowCount}" checked> Sale
+                    </label>
+                    <button class="btn-danger btn-sm" onclick="removeOutRow(${outRowCount})" style="width:auto;">✕</button>
+                </div>`;
+            document.getElementById('stockOutRows').insertAdjacentHTML('beforeend', c);
+        }
+        function removeOutRow(id) {
+            document.getElementById(`out_row_${id}`).remove();
+            updateOutSubtotal();
+        }
+        function onOutRiceChange(id) {
+            const row = document.getElementById(`out_row_${id}`);
+            row.dataset.customRate = "0";
+            row.querySelector('.totalPriceOut').classList.add('default-val');
+            updateOutRow(id);
+        }
+        function onQtyChange(id) {
+            const row = document.getElementById(`out_row_${id}`);
+            const sel = row.querySelector('.riceSelOut').value;
+            const qty = getNum(row.querySelector('.qtyOut').value) || 0;
+            if (!sel || qty <= 0) {
+                updateOutRow(id);
+                return;
+            }
+            const isCustom = row.dataset.customRate === "1";
+            let priceKg;
+            if (isCustom) {
+                const existingTotal = getNum(row.querySelector('.totalPriceOut').value) || 0;
+                const oldQty = getNum(row.querySelector('.qtyOut').defaultValue) || qty;
+                priceKg = oldQty > 0 ? existingTotal / oldQty : riceTypes[sel].price_per_kg;
+                row.querySelector('.totalPriceOut').value = (qty * priceKg).toFixed(2);
+            } else {
+                priceKg = riceTypes[sel].price_per_kg;
+                row.querySelector('.totalPriceOut').value = (qty * priceKg).toFixed(2);
+            }
+            row.querySelector('.qtyOut').defaultValue = qty;
+            updateOutRow(id);
+        }
+        function onTotalPriceEdit(id) {
+            const row = document.getElementById(`out_row_${id}`);
+            row.dataset.customRate = "1";
+            row.querySelector('.totalPriceOut').classList.remove('default-val');
+            updateOutRow(id);
+        }
+        function updateOutRow(id) {
+            const row = document.getElementById(`out_row_${id}`);
+            const qty = getNum(row.querySelector('.qtyOut').value) || 0;
+            const totalPrice = getNum(row.querySelector('.totalPriceOut').value) || 0;
+            const priceKg = qty > 0 ? totalPrice / qty : 0;
+            document.getElementById(`out_calc_${id}`).textContent = `RM ${totalPrice.toFixed(2)} = ${priceKg.toFixed(2)}/kg`;
+            updateOutSubtotal();
+        }
+        function updateOutSubtotal() {
+            let total = 0;
+            document.querySelectorAll('#stockOutRows .row-calc').forEach(el => {
+                const m = el.textContent.match(/RM ([\d.]+)/);
+                if(m) total += parseFloat(m[1]);
+            });
+            document.getElementById('stockOutSubtotal').innerHTML = `Total Selling Value: RM ${total.toFixed(2)}`;
+        }
+
+        function openModal(id) {
+            document.getElementById(`modal_${id}`).classList.add('active');
+            if (id === 'multiStockIn') {
+                inRowCount = 0;
+                document.getElementById('stockInRows').innerHTML = '';
+                addStockInRow();
+            }
+            if (id === 'multiStockOut') {
+                outRowCount = 0;
+                document.getElementById('stockOutRows').innerHTML = '';
+                addStockOutRow();
+            }
+        }
+        function closeModal(id) {
+            document.getElementById(`modal_${id}`).classList.remove('active');
+        }
+
+        function confirmMultiStockIn() {
+            const rows = document.querySelectorAll('#stockInRows .stock-row');
+            if (!rows.length) return alert('⚠️ No items added!');
+            let items = [], valid = true;
+            rows.forEach(row => {
+                const name = row.querySelector('.riceSelIn').value;
+                const qty = getNum(row.querySelector('.qtyIn').value);
+                const costKg = getNum(row.querySelector('.costKgIn').value);
+                if (!name) return;
+                if (qty === null || qty <= 0) { valid = false; alert('Enter valid quantity'); return; }
+                if (costKg === null || costKg < 0) { valid = false; alert('Enter valid cost per kg'); return; }
+                items.push({name, qty, costKg});
+            });
+            if (!valid || !items.length) return;
+            if (!confirm(`Confirm buy ${items.length} item(s)?`)) return;
+            items.forEach(it => {
+                const oldStock = riceTypes[it.name].stock;
+                const oldCostKg = riceTypes[it.name].cost_per_kg;
+                const newStock = oldStock + it.qty;
+                const newAvgCostKg = ((oldStock * oldCostKg) + (it.qty * it.costKg)) / newStock;
+                riceTypes[it.name].stock = newStock;
+                riceTypes[it.name].cost_per_kg = newAvgCostKg;
+                logAction('Bought', `${it.name} — ${it.qty.toFixed(2)}kg`);
+            });
+            saveData();
+            alert(`✅ ${items.length} item(s) bought!`);
+            closeModal('multiStockIn');
+            refreshAll();
+        }
+
+        function confirmMultiStockOut() {
+            const rows = document.querySelectorAll('#stockOutRows .stock-row');
+            if (!rows.length) return alert('⚠️ No items added!');
+            let items = [], valid = true;
+            rows.forEach(row => {
+                const name = row.querySelector('.riceSelOut').value;
+                const qty = getNum(row.querySelector('.qtyOut').value);
+                const totalPrice = getNum(row.querySelector('.totalPriceOut').value);
+                const isSale = row.querySelector('.saleInc').checked;
+                if (!name) return;
+                if (qty === null || qty <= 0) { valid = false; alert('Enter valid quantity'); return; }
+                if (!riceTypes[name] || riceTypes[name].stock < qty) { valid = false; alert(`Insufficient stock: ${name}`); return; }
+                if (totalPrice === null || totalPrice < 0) { valid = false; alert('Enter valid total price'); return; }
+                const priceKg = qty > 0 ? totalPrice / qty : 0;
+                const costKg = riceTypes[name].cost_per_kg;
+                const costTotal = qty * costKg;
+                const profit = isSale ? totalPrice - costTotal : 0;
+                items.push({name, qty, totalPrice, priceKg, isSale, costKg, costTotal, profit});
+            });
+            if (!valid || !items.length) return;
+            if (!confirm(`Confirm sell ${items.length} item(s)?`)) return;
+            items.forEach(it => {
+                riceTypes[it.name].stock -= it.qty;
+                if (it.isSale) {
+                    salesRecords.push({
+                        name: it.name, qty: it.qty,
+                        total_price: it.totalPrice,
+                        price_per_kg: it.priceKg,
+                        cost_kg: it.costKg,
+                        cost_total: it.costTotal,
+                        profit: it.profit,
+                        t: getTimestamp()
+                    });
+                    logAction('Sold', `${it.name} — ${it.qty.toFixed(2)}kg`);
+                } else {
+                    logAction('Sold', `${it.name} — ${it.qty.toFixed(2)}kg (waste)`);
+                }
+            });
+            saveData();
+            alert(`✅ ${items.length} item(s) sold!`);
+            closeModal('multiStockOut');
+            refreshAll();
+        }
+
+        // BASIC FUNCTIONS
+        function addRice() {
+            const n = document.getElementById('ar_name').value.trim();
+            const s = getNum(document.getElementById('ar_stock').value);
+            const c = getNum(document.getElementById('ar_cost').value);
+            const p = getNum(document.getElementById('ar_price').value);
+            if (!n || s===null || s<0 || c===null || c<0 || p===null || p<=0 || riceTypes[n]) return alert('Check inputs');
+            riceTypes[n] = {stock:s, cost_per_kg:c, price_per_kg:p};
+            logAction('ADD', `${n} stock:${s}kg cost:RM${c} sell:RM${p}/kg`);
+            saveData(); alert('✅ Added'); closeModal('addRice'); refreshAll();
+        }
+        function resetAllData() {
+            if (!confirm('⚠️ Delete ALL data? Cannot undo!')) return;
+            riceTypes = {}; transactionLog = []; salesRecords = [];
+            localStorage.removeItem(STORAGE_KEY); alert('✅ Cleared'); refreshAll();
+        }
+        function exportBackup() {
+            const code = btoa(encodeURIComponent(JSON.stringify({riceTypes, transactionLog, salesRecords})));
+            if (navigator.clipboard) navigator.clipboard.writeText(code).then(()=>alert('✅ Copied! Paste to import on other device'));
+            else prompt('Copy below:', code);
+        }
+        function importBackup() {
+            try {
+                const d = JSON.parse(decodeURIComponent(atob(document.getElementById('importData').value.trim())));
+                if (!d.riceTypes) throw 'bad';
+                if (!confirm('⚠️ Replace ALL current data?')) return;
+                riceTypes = d.riceTypes; transactionLog = d.transactionLog||[]; salesRecords = d.salesRecords||[];
+                saveData(); alert('✅ Restored'); closeModal('importModal'); refreshAll();
+            } catch { alert('❌ Invalid backup code'); }
+        }
+        function showLog() {
+            // Show only: date, Bought/Sold, rice type, kg
+            const formatted = transactionLog
+                .filter(x => x.a === 'Bought' || x.a === 'Sold')
+                .map(x => {
+                    const date = x.date || (x.t ? x.t.substring(0, 10).split('-').reverse().join('/') : '—');
+                    return `${date} ${x.a}: ${x.d}`;
+                })
+                .join('\n');
+            document.getElementById('logContent').value = formatted || 'No buy/sell transactions yet.';
+            openModal('log');
+        }
+        function refreshAll() {
+            // Inventory table with EDIT button
+            const tb = document.getElementById('inventoryBody'); tb.innerHTML = '';
+            if (!Object.keys(riceTypes).length) tb.innerHTML = '<tr><td colspan="5" class="empty-hint">Add rice first</td></tr>';
+            else for(const [n,d] of Object.entries(riceTypes)) {
+                tb.innerHTML += `<tr>
+                    <td><b>${n}</b></td>
+                    <td>${d.stock.toFixed(2)}</td>
+                    <td>${d.cost_per_kg.toFixed(2)}</td>
+                    <td>${d.price_per_kg.toFixed(2)}</td>
+                    <td><button class="edit-btn" onclick="openEditRice('${n.replace(/'/g, "\\'")}')">✏️ Edit</button></td>
+                </tr>`;
+            }
+            
+            // Summary
+            let inc=0, cost=0, profit=0;
+            salesRecords.forEach(s=>{inc += s.total_price || 0; cost += s.cost_total || 0; profit += s.profit || 0;});
+            document.getElementById('totalIncome').textContent = inc.toFixed(2);
+            document.getElementById('totalCost').textContent = cost.toFixed(2);
+            document.getElementById('totalProfit').textContent = profit.toFixed(2);
+            
+            // Recent Transactions — now matches log format: date, Bought/Sold, rice type, kg
+            const sl = document.getElementById('saleList'); sl.innerHTML = '';
+            const txnList = transactionLog.filter(x => x.a === 'Bought' || x.a === 'Sold');
+            if (!txnList.length) {
+                sl.innerHTML = '<div class="empty-hint">No transactions yet.</div>';
+            } else {
+                txnList.slice().reverse().forEach(x => {
+                    const date = x.date || (x.t ? x.t.substring(0, 10).split('-').reverse().join('/') : '—');
+                    const cls = x.a === 'Bought' ? 'txn-buy' : 'txn-sell';
+                    sl.innerHTML += `<div class="txn-item">
+                        <span style="color:#718096;">${date}</span>
+                        <span class="${cls}">${x.a}</span>: ${x.d}
+                    </div>`;
+                });
+            }
+        }
+        
+        loadData(); refreshAll();
+    </script>
+</body>
+</html>
